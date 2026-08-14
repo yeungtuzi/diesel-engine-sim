@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>四冲程柴油机 · 3D 交互仿真系统</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./css/style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./js/vendor/three/three.module.js",
+      "three/addons/": "./js/vendor/three/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="viewport"></canvas>
+
+    <!-- 顶部标题 -->
+    <header id="titlebar">
+      <h1>四冲程柴油机 · 高精度 3D 交互仿真</h1>
+      <span class="sub">Four-Stroke Diesel Engine — Interactive 3D Simulation</span>
+    </header>
+
+    <!-- 状态面板 -->
+    <aside id="status-panel" class="panel">
+      <h2>发动机状态 <span class="en">Engine Status</span></h2>
+      <div class="stat-row"><label>曲轴转角</label><span id="stat-angle">0.0°</span></div>
+      <div class="stat-row"><label>当前冲程</label><span id="stat-stroke">吸气</span></div>
+      <div class="stat-row"><label>转速</label><span id="stat-rpm">1200 RPM</span></div>
+      <div class="stat-row"><label>水温</label><span id="stat-coolant">82.0 °C</span></div>
+      <div class="stat-row"><label>油压</label><span id="stat-oil">4.2 bar</span></div>
+      <div class="stat-row"><label>燃油喷射</label><span id="stat-fuel">—</span></div>
+      <h2 class="cyl-title">各缸冲程 <span class="en">Cylinders</span></h2>
+      <div id="cyl-strokes"></div>
+    </aside>
+
+    <!-- 图例 -->
+    <aside id="legend" class="panel">
+      <h2>图例 <span class="en">Legend</span></h2>
+      <ul id="legend-list"></ul>
+      <div class="legend-hint">鼠标悬停零件查看详细信息 · 滚轮缩放 · 右键平移 · 左键旋转</div>
+    </aside>
+
+    <!-- 控制条 -->
+    <footer id="controlbar">
+      <div class="ctrl-group">
+        <button id="btn-play" class="btn primary" title="播放/暂停">⏸ 暂停</button>
+        <label class="ctrl">转速
+          <input id="speed-slider" type="range" min="60" max="3000" value="1200" step="30" />
+          <span id="speed-value">1200</span> RPM
+        </label>
+      </div>
+      <div class="ctrl-group">
+        <button id="btn-section" class="btn" title="剖视模式">🔪 剖视</button>
+        <button id="btn-explode" class="btn" title="爆炸/分解视图">💥 分解</button>
+        <button id="btn-fluid" class="btn active" title="冷却液/润滑油流动">💧 流体</button>
+        <button id="btn-wireframe" class="btn" title="线框显示">🔲 线框</button>
+        <button id="btn-reset" class="btn" title="复位视图">🔄 复位</button>
+      </div>
+      <div class="ctrl-group presets">
+        <span class="preset-label">视角</span>
+        <button class="btn preset" data-preset="front">前视</button>
+        <button class="btn preset" data-preset="side">侧视</button>
+        <button class="btn preset" data-preset="top">俯视</button>
+        <button class="btn preset" data-preset="iso">轴测</button>
+        <button class="btn preset" data-preset="free">自由</button>
+      </div>
+    </footer>
+
+    <!-- 悬浮信息卡 -->
+    <div id="tooltip" class="panel hidden">
+      <div class="tt-head">
+        <span id="tt-name-zh" class="tt-name"></span>
+        <span id="tt-name-en" class="tt-name-en"></span>
+      </div>
+      <div class="tt-body">
+        <div class="tt-row"><span class="tt-k">材料/工艺</span><span id="tt-material" class="tt-v"></span></div>
+        <div class="tt-row"><span class="tt-k">功能</span><span id="tt-function" class="tt-v"></span></div>
+        <div class="tt-row"><span class="tt-k">关键参数</span><span id="tt-params" class="tt-v"></span></div>
+        <div class="tt-row"><span class="tt-k">当前状态</span><span id="tt-state" class="tt-v state"></span></div>
+      </div>
+    </div>
+
+    <!-- 加载遮罩 -->
+    <div id="loading">
+      <div class="spinner"></div>
+      <div>正在构建发动机模型…</div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
