@@ -3,11 +3,16 @@
 // ============================================================================
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { P, CYL, DEG } from './config.js';
 import { partState } from './partData.js';
 import { createMaterials } from './materials.js';
 import { buildEngine } from './engine.js';
 import { buildFluids } from './fluids.js';
+import { buildCombustion } from './combustion.js';
 import { pistonPinY, pistonCrownY, valveLift, strokeInfo } from './kinematics.js';
 import { initUI } from './ui.js';
 
@@ -18,6 +23,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.localClippingEnabled = true;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d1219);
@@ -27,16 +34,38 @@ const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerH
 camera.position.set(820, 560, 1020);
 
 // ---------- 光照与环境 ----------
+// 四灯布光：主光（暖白，投影）+ 冷色补光 + 蓝色轮廓光 + 排气侧暖色氛围光
 const { materials, envMap } = createMaterials(renderer);
 scene.environment = envMap;
-const hemi = new THREE.HemisphereLight(0x9db8ff, 0x22262c, 0.55);
+const hemi = new THREE.HemisphereLight(0xbdd4ff, 0x1d2127, 0.5);
 scene.add(hemi);
-const key = new THREE.DirectionalLight(0xffffff, 2.2);
-key.position.set(420, 640, 320);
+const key = new THREE.DirectionalLight(0xfff3e2, 2.2);
+key.position.set(540, 760, 380);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -720; key.shadow.camera.right = 720;
+key.shadow.camera.top = 720;   key.shadow.camera.bottom = -720;
+key.shadow.camera.near = 150;  key.shadow.camera.far = 2800;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 3;
 scene.add(key);
-const rim = new THREE.DirectionalLight(0x88bbff, 0.7);
+const fill = new THREE.DirectionalLight(0x74a0ff, 0.65);
+fill.position.set(-520, 240, 560);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0x88bbff, 0.85);
 rim.position.set(-520, 320, -420);
 scene.add(rim);
+const warmAccent = new THREE.DirectionalLight(0xff8e4d, 0.4);   // 排气/涡轮侧高温氛围
+warmAccent.position.set(-300, 120, -700);
+scene.add(warmAccent);
+
+// ---------- 辉光（Bloom）后期 ----------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.55, 0.82);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
 
 // ---------- 地面与网格 ----------
 const ground = new THREE.Mesh(
@@ -44,6 +73,7 @@ const ground = new THREE.Mesh(
   new THREE.MeshStandardMaterial({ color: 0x141a22, roughness: 0.95, metalness: 0 }));
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -232;
+ground.receiveShadow = true;
 scene.add(ground);
 const grid = new THREE.GridHelper(4000, 80, 0x2a3442, 0x1a212b);
 grid.position.y = -231;
@@ -53,7 +83,13 @@ scene.add(grid);
 const { root, refs, subGroups } = buildEngine(materials);
 scene.add(root);
 const engineMaterials = new Set();
-root.traverse((o) => { if (o.isMesh) engineMaterials.add(o.material); });
+root.traverse((o) => {
+  if (!o.isMesh) return;
+  engineMaterials.add(o.material);
+  // 半透明外壳不投影（避免脏影），实体件投影且受影
+  o.castShadow = !(o.material && o.material.transparent);
+  o.receiveShadow = true;
+});
 
 // ---------- 剖视平面 ----------
 const sectionPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
@@ -65,6 +101,26 @@ scene.add(sectionCap);
 
 // ---------- 流体 ----------
 const fluids = buildFluids(scene);
+
+// ---------- 缸内燃烧特效 ----------
+const combustion = buildCombustion(scene);
+
+// ---------- 外壳半透明开关（实体件清单） ----------
+const shellMeshes = [];
+root.traverse((o) => {
+  if (o.isMesh && o.material && o.material.userData.shell) shellMeshes.push(o);
+});
+function setShellTransparent(b) {
+  engineMaterials.forEach((m) => {
+    if (!m.userData.shell) return;
+    m.transparent = b;
+    m.opacity = b ? m.userData.baseOpacity : 1;
+    m.depthWrite = !b;
+    m.userData.fresOn = b;      // 实体模式关闭边缘辉光，避免表面发白
+    m.needsUpdate = true;
+  });
+  shellMeshes.forEach((o) => { o.castShadow = !b; o.renderOrder = b ? 2 : 0; });
+}
 
 // ---------- 控制器 ----------
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -91,6 +147,8 @@ let explodeOn = false;
 let explodeAmt = 0;
 let fluidOn = true;
 let wireframeOn = false;
+let shellOn = true;               // 外壳半透明（默认开）
+let glowOn = true;                // 辉光后期（默认开）
 
 const explodeTargets = {
   foundation: new THREE.Vector3(0, 0, 0),
@@ -164,7 +222,18 @@ ui.els.btnExplode.addEventListener('click', () => {
 });
 ui.els.btnFluid.addEventListener('click', () => {
   fluidOn = !fluidOn;
+  fluids.coolant.setVisible(fluidOn);
+  fluids.oil.setVisible(fluidOn);
   ui.els.btnFluid.classList.toggle('active', fluidOn);
+});
+ui.els.btnShell.addEventListener('click', () => {
+  shellOn = !shellOn;
+  setShellTransparent(shellOn);
+  ui.els.btnShell.classList.toggle('active', shellOn);
+});
+ui.els.btnGlow.addEventListener('click', () => {
+  glowOn = !glowOn;
+  ui.els.btnGlow.classList.toggle('active', glowOn);
 });
 ui.els.btnWireframe.addEventListener('click', () => {
   wireframeOn = !wireframeOn;
@@ -178,6 +247,9 @@ ui.els.btnReset.addEventListener('click', () => {
   wireframeOn = false; engineMaterials.forEach((m) => { m.wireframe = false; });
   ui.els.btnWireframe.classList.remove('active');
   fluidOn = true; ui.els.btnFluid.classList.add('active');
+  fluids.coolant.setVisible(true); fluids.oil.setVisible(true);
+  shellOn = true; setShellTransparent(true); ui.els.btnShell.classList.add('active');
+  glowOn = true; ui.els.btnGlow.classList.add('active');
   setView('iso');
 });
 
@@ -228,6 +300,7 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ================= 渲染循环 =================
@@ -245,6 +318,9 @@ function animate() {
   const flow = playing ? Math.max(0.1, rpm / 1200) : 0;
   fluids.coolant.update(dt, flow);
   fluids.oil.update(dt, flow * 0.92);
+
+  // 缸内燃烧特效（分解视图下停发，避免误导）
+  combustion.update(dt, theta, playing && !explodeOn);
 
   // 爆炸视图平滑过渡
   explodeAmt += ((explodeOn ? 1 : 0) - explodeAmt) * Math.min(1, dt * 4);
@@ -269,7 +345,8 @@ function animate() {
   ui.setCylinders([0, 1, 2, 3].map((i) => strokeInfo(i, theta)));
 
   controls.update();
-  renderer.render(scene, camera);
+  if (glowOn) composer.render();
+  else renderer.render(scene, camera);
 
   if (firstFrame) {
     firstFrame = false;
@@ -286,7 +363,10 @@ window.dieselSim = {
   isPlaying: () => playing,
   setSection(b) { sectionOn = !!b; renderer.clippingPlanes = sectionOn ? [sectionPlane] : []; sectionCap.visible = sectionOn; ui.els.btnSection.classList.toggle('active', sectionOn); },
   setExplode(b) { explodeOn = !!b; ui.els.btnExplode.classList.toggle('active', explodeOn); },
-  setFluid(b) { fluidOn = !!b; ui.els.btnFluid.classList.toggle('active', fluidOn); },
+  setFluid(b) { fluidOn = !!b; fluids.coolant.setVisible(fluidOn); fluids.oil.setVisible(fluidOn); ui.els.btnFluid.classList.toggle('active', fluidOn); },
+  setShell(b) { shellOn = !!b; setShellTransparent(shellOn); ui.els.btnShell.classList.toggle('active', shellOn); },
+  setGlow(b) { glowOn = !!b; ui.els.btnGlow.classList.toggle('active', glowOn); },
+  setCombustion(b) { combustion.setVisible(!!b); },
   setView,
   _root: root,
   _refs: refs,

@@ -47,6 +47,8 @@ export function initUI() {
       btnSection: $('btn-section'),
       btnExplode: $('btn-explode'),
       btnFluid: $('btn-fluid'),
+      btnShell: $('btn-shell'),
+      btnGlow: $('btn-glow'),
       btnWireframe: $('btn-wireframe'),
       btnReset: $('btn-reset'),
       loading: $('loading'),

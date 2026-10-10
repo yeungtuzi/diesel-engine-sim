@@ -8,10 +8,10 @@ import { reg, box, cyl, ghost, hexBolt } from './helpers.js';
 export function buildFoundation(refs, mat) {
   const g = new THREE.Group();
 
-  // 透明外壳材质（可切换不透明）
-  const ghostIron = ghost(mat.castIron, 0.30);
-  const ghostIronDark = ghost(mat.castIronDark, 0.34);
-  const ghostAlu = ghost(mat.aluminum, 0.34);
+  // 半透明外壳材质（玻璃质感：低透明度 + 菲涅尔边缘，可切换回实体）
+  const ghostIron = ghost(mat.castIron, 0.13);
+  const ghostIronDark = ghost(mat.castIronDark, 0.16);
+  const ghostAlu = ghost(mat.aluminum, 0.15);
   refs.housingMats.push(ghostIron, ghostIronDark, ghostAlu);
 
   // ---------- 气缸体 ----------
@@ -26,13 +26,13 @@ export function buildFoundation(refs, mat) {
   reg(refs, skirt, 'cylinder-block');
   g.add(skirt);
 
-  // ---------- 缸套（4 个，薄壁管） ----------
+  // ---------- 缸套（4 个，薄壁管；半透明以便观察缸内燃烧，实体模式自动恢复不透光） ----------
   const linerH = P.deckY - P.linerBottomY; // 128
   const linerGeo = new THREE.CylinderGeometry(48, 48, linerH, 40, 1, true);
+  const linerMat = ghost(mat.castIronDark, 0.20);
+  refs.housingMats.push(linerMat);
   for (let i = 0; i < P.numCyl; i++) {
-    const liner = new THREE.Mesh(linerGeo, mat.castIronDark);
-    liner.material = liner.material.clone();
-    liner.material.side = THREE.DoubleSide;
+    const liner = new THREE.Mesh(linerGeo, linerMat);
     liner.position.set(0, (P.deckY + P.linerBottomY) / 2, P.cylZ(i));
     reg(refs, liner, 'cylinder-liner');
     g.add(liner);

@@ -73,13 +73,39 @@ export function gearGeometry(teeth, tipRadius, width, addendum = 3) {
   return new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false });
 }
 
-// 克隆材质并设为半透明（用于“透明外壳”模式）
-export function ghost(mat, opacity = 0.35) {
+// 克隆材质并设为「半透明玻璃外壳」：
+//   · 低不透明度，可直接透视内部运动件
+//   · 菲涅尔边缘辉光（onBeforeCompile 注入）：视线掠射角度时边缘变亮，
+//     外壳轮廓依然清晰可辨，兼具通透感与体积感
+export function ghost(mat, opacity = 0.13) {
   const m = mat.clone();
   m.transparent = true;
   m.opacity = opacity;
   m.depthWrite = false;
   m.side = THREE.DoubleSide;
+  m.envMapIntensity = (m.envMapIntensity ?? 0.85) * 1.5;
+  m.userData.shell = true;
+  m.userData.baseOpacity = opacity;
+  m.userData.fresOn = true;
+  // 菲涅尔开/关两个着色器变体分开缓存，切换开关时强制使用对应变体
+  m.customProgramCacheKey = () => 'shell-fres-' + (m.userData.fresOn ? 1 : 0);
+  m.onBeforeCompile = (shader) => {
+    if (!m.userData.fresOn) return;
+    shader.uniforms.uFresColor = { value: new THREE.Color(0x9cc8ff) };
+    shader.uniforms.uFresPow = { value: 2.6 };
+    shader.uniforms.uFresBoost = { value: 1.55 };
+    shader.fragmentShader =
+      'uniform vec3 uFresColor;\nuniform float uFresPow;\nuniform float uFresBoost;\n' +
+      shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `#include <opaque_fragment>
+         {
+           vec3 fN = normalize( gl_FrontFacing ? vNormal : -vNormal );
+           float f = pow( 1.0 - clamp( abs( dot( fN, normalize( vViewPosition ) ) ), 0.0, 1.0 ), uFresPow );
+           gl_FragColor.rgb += uFresColor * f * uFresBoost;
+           gl_FragColor.a = clamp( gl_FragColor.a + f * 0.42, 0.0, 1.0 );
+         }`);
+  };
   return m;
 }
 
